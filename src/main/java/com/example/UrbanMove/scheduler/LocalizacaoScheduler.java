@@ -9,9 +9,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class LocalizacaoScheduler {
 
-    private LocalizacaoService localizacaoService;
+    private final LocalizacaoService localizacaoService;
 
-    @Scheduled(fixedRate = 5000)
+    public LocalizacaoScheduler(LocalizacaoService localizacaoService) {
+        this.localizacaoService = localizacaoService;
+    }
+
+    @Scheduled(fixedRate = 1000)
     public void atualizarLoc(){
         localizacaoService.gerarNovaLocalizacao();
     }

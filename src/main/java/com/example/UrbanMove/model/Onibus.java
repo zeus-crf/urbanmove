@@ -1,18 +1,19 @@
 package com.example.UrbanMove.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.util.UUID;
 
 @Entity(name = "onibus")
 @Data
 @AllArgsConstructor
+@NoArgsConstructor
 public class Onibus {
 
     @Id
@@ -24,4 +25,10 @@ public class Onibus {
 
     @NotBlank
     private String placa;
+
+
+    @OneToOne(cascade = CascadeType.ALL)
+    @JoinColumn(name = "localizacao_id")
+    private Localizacao localizacaoAtual;
+
 }
