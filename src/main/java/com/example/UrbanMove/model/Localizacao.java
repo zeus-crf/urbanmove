@@ -27,7 +27,7 @@ public class Localizacao {
     @NotNull
     private Double longitude;
 
-    @CreationTimestamp
+
     private LocalDateTime dataHora;
 
     @ManyToOne

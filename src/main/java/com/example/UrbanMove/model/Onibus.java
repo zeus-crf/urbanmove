@@ -26,9 +26,18 @@ public class Onibus {
     @NotBlank
     private String placa;
 
-
+    // Localização atual do ônibus
     @OneToOne(cascade = CascadeType.ALL)
     @JoinColumn(name = "localizacao_id")
     private Localizacao localizacaoAtual;
 
+
+    @Column(name = "shape_id")
+    private String shapeId; // muda de String para UUID
+
+
+    private int pontoAtualIndex;
+
+    // Direção do ônibus (ida ou volta)
+    private boolean indo; // true = indo, false = voltando
 }

@@ -64,10 +64,10 @@ public class OnibusController {
         return onibusService.deletarOnibus(id);
     }
 
-    // --- SSE para enviar atualizações em tempo real ---
+
     @GetMapping("/stream")
     public SseEmitter streamOnibus() {
-        SseEmitter emitter = new SseEmitter(Long.MAX_VALUE); // tempo ilimitado
+        SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
         emitters.add(emitter);
 
         // Remove emitter se completar ou expirar

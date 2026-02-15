@@ -3,103 +3,103 @@ package com.example.UrbanMove.service;
 import com.example.UrbanMove.dtos.OnibusLocalizacaoDTO;
 import com.example.UrbanMove.event.OnibusAtualizadoEvent;
 import com.example.UrbanMove.excecoes.OnibusNaoEncontradoException;
-import com.example.UrbanMove.model.Localizacao;
-import com.example.UrbanMove.model.Onibus;
+import com.example.UrbanMove.model.*;
+import com.example.UrbanMove.repository.GtfsShapeRepository;
 import com.example.UrbanMove.repository.LocalizacaoRepository;
 import com.example.UrbanMove.repository.OnibusRepository;
+import com.example.UrbanMove.repository.ShapeRepository;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
+
 public class LocalizacaoService {
 
     private final OnibusRepository onibusRepository;
     private final LocalizacaoRepository localizacaoRepository;
-    private final ApplicationEventPublisher publisher;
+    private final ShapeRepository shapeRepository;
+    private final GtfsShapeRepository gtfsShapeRepository;
 
     public LocalizacaoService(OnibusRepository onibusRepository,
                               LocalizacaoRepository localizacaoRepository,
-                              ApplicationEventPublisher publisher) {
+                              ShapeRepository shapeRepository,
+                              GtfsShapeRepository gtfsShapeRepository) {
         this.onibusRepository = onibusRepository;
         this.localizacaoRepository = localizacaoRepository;
-        this.publisher = publisher;
+        this.shapeRepository = shapeRepository;
+        this.gtfsShapeRepository = gtfsShapeRepository;
+    }
+
+    @Scheduled(fixedRate = 1000) // atualiza a cada 1 segundo
+    public void atualizarLoc() {
+        gerarNovaLocalizacao();
     }
 
 
     public void gerarNovaLocalizacao() {
-
+        // Busca todos os ônibus ativos
         List<Onibus> onibusList = onibusRepository.findAll();
 
-        for (Onibus bus : onibusList) {
+        for (Onibus onibus : onibusList) {
+            String shapeId = onibus.getShapeId();
 
-            double novaLat = gerarNovaLatitude(bus);
-            double novaLng = gerarNovaLongitude(bus);
-
-            Localizacao loc = bus.getLocalizacaoAtual();
-
-            if (loc == null) {
-                loc = new Localizacao();
+            if (shapeId == null) {
+                System.out.println("Ônibus sem shapeId: " + onibus.getId());
+                continue;
             }
 
-            loc.setLatitude(novaLat);
-            loc.setLongitude(novaLng);
-            loc.setDataHora(LocalDateTime.now());
+            // Busca os pontos do shape no GTFS
+            List<GtfsShape> shapePoints = gtfsShapeRepository.findByShapeIdOrderByShapePtSequenceAsc(shapeId);
+            if (shapePoints.isEmpty()) {
+                System.out.println("Shape vazio para o ônibus: " + onibus.getId());
+                continue;
+            }
 
-            loc.setOnibus(bus);
+            // Atualiza o ponto atual do ônibus
+            int pontoAtual = onibus.getPontoAtualIndex() + 1;
+            if (pontoAtual >= shapePoints.size()) {
+                pontoAtual = 0; // reinicia ou inverte direção
+            }
+            onibus.setPontoAtualIndex(pontoAtual);
 
-            bus.setLocalizacaoAtual(loc);
+            // Pega o ponto atual do shape GTFS
+            GtfsShape ponto = shapePoints.get(pontoAtual);
 
-            onibusRepository.save(bus); // salva os dois por cascade
+            // Atualiza a localização existente ou cria se não tiver
+            Localizacao locAtual = onibus.getLocalizacaoAtual();
+            if (locAtual == null) {
+                locAtual = new Localizacao();
+                locAtual.setOnibus(onibus);
+            }
 
-            publisher.publishEvent(new OnibusAtualizadoEvent(bus));
+            locAtual.setLatitude(ponto.getShapePtLat());
+            locAtual.setLongitude(ponto.getShapePtLon());
+            locAtual.setDataHora(LocalDateTime.now());
+
+            // Salva a localização e atualiza referência no ônibus
+            localizacaoRepository.save(locAtual);
+            onibus.setLocalizacaoAtual(locAtual);
+            onibusRepository.save(onibus);
         }
     }
 
 
-    // Calcula variação aleatória de latitude
-    private double gerarNovaLatitude(Onibus bus) {
-        double atual = bus.getLocalizacaoAtual() != null ? bus.getLocalizacaoAtual().getLatitude() : -22.9068;
-        return atual + gerarVariacao();
-    }
 
-    // Calcula variação aleatória de longitude
-    private double gerarNovaLongitude(Onibus bus) {
-        double atual = bus.getLocalizacaoAtual() != null ? bus.getLocalizacaoAtual().getLongitude() : -43.1729;
-        return atual + gerarVariacao();
-    }
-
-    // Retorna variação pequena aleatória
-    private double gerarVariacao() {
-        return (Math.random() - 0.5) * 0.001;
-    }
-
-    // Método auxiliar para salvar localização manualmente
-    private void salvar(double novaLat, double novaLng, Onibus bus) {
-        Localizacao novaLoc = new Localizacao();
-        novaLoc.setLatitude(novaLat);
-        novaLoc.setLongitude(novaLng);
-        novaLoc.setDataHora(LocalDateTime.now());
-        novaLoc.setOnibus(bus);
-        localizacaoRepository.save(novaLoc);
-    }
 
     // Busca a última localização de um ônibus pelo ID
-    public Localizacao buscarUltimaLocalizacaoPorOnibusId(UUID id) {
-        Onibus onibus = onibusRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Ônibus não encontrado"));
+    public Localizacao buscarUltimaLocalizacaoPorOnibusId(UUID onibusId) {
+        Optional<Localizacao> ultima = localizacaoRepository
+                .findTopByOnibusIdOrderByDataHoraDesc(onibusId);
 
-        Localizacao loc = localizacaoRepository.findTopByOnibusOrderByDataHoraDesc(onibus);
-
-        if (loc == null) {
-            throw new RuntimeException("Ônibus ainda não possui localização");
-        }
-
-        return loc;
+        return ultima.orElse(null); // retorna null se não existir localização
     }
+
 
     // Retorna DTO com dados do ônibus + localização
     public OnibusLocalizacaoDTO buscarLocalizacaoDTO(UUID id) {
