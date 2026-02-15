@@ -34,4 +34,7 @@ public class Localizacao {
     @JoinColumn(name = "onibus_id", nullable = false)
     @JsonBackReference
     private Onibus onibus;
+
+    public Localizacao(Onibus bus) {
+    }
 }

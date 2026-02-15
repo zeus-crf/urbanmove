@@ -3,11 +3,13 @@ package com.example.UrbanMove.service;
 import com.example.UrbanMove.dtos.NovoOnibus;
 import com.example.UrbanMove.event.OnibusAtualizadoEvent;
 import com.example.UrbanMove.excecoes.OnibusNaoEncontradoException;
+import com.example.UrbanMove.model.GtfsShape;
 import com.example.UrbanMove.model.Localizacao;
 import com.example.UrbanMove.model.Onibus;
 import com.example.UrbanMove.model.Trip;
 import com.example.UrbanMove.repository.LocalizacaoRepository;
 import com.example.UrbanMove.repository.OnibusRepository;
+import com.example.UrbanMove.repository.ShapeRepository;
 import com.example.UrbanMove.repository.TripRepository;
 import com.example.UrbanMove.utils.Utils;
 import org.springframework.context.ApplicationEventPublisher;
@@ -15,10 +17,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.PathVariable;
 
+import java.awt.*;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class OnibusService {
@@ -28,17 +33,20 @@ public class OnibusService {
     private final LocalizacaoService localizacaoService;
     private final ApplicationEventPublisher publisher; // Para eventos SSE
     private final TripRepository tripRepository;
+    private final ShapeRepository shapeRepository;
 
     public OnibusService(OnibusRepository onibusRepository,
                          LocalizacaoRepository localizacaoRepository,
                          LocalizacaoService localizacaoService,
                          ApplicationEventPublisher publisher,
-                         TripRepository tripRepository) {
+                         TripRepository tripRepository,
+                         ShapeRepository shapeRepository) {
         this.onibusRepository = onibusRepository;
         this.localizacaoRepository = localizacaoRepository;
         this.localizacaoService = localizacaoService;
         this.publisher = publisher;
         this.tripRepository = tripRepository;
+        this.shapeRepository = shapeRepository;
     }
 
     public List<Onibus> listaDeOnibus() {
@@ -92,42 +100,51 @@ public class OnibusService {
         List<Onibus> onibusList = onibusRepository.findAll();
 
         for (Onibus bus : onibusList) {
-            double novaLat = gerarNovaLatitude();
-            double novaLng = gerarNovaLongitude();
 
-            Localizacao novaLoc = new Localizacao();
-            novaLoc.setLatitude(novaLat);
-            novaLoc.setLongitude(novaLng);
-            novaLoc.setDataHora(LocalDateTime.now());
-
-            // Salva no banco apenas a última localização
-            bus.setLocalizacaoAtual(novaLoc);
-            onibusRepository.save(bus);
-
-            // Dispara evento para o SSE
-            publisher.publishEvent(new OnibusAtualizadoEvent(bus));
+         moverOnibusPeloShape(bus);
+         publisher.publishEvent(new OnibusAtualizadoEvent(bus));
         }
     }
 
-    private double gerarNovaLatitude() {
-        return -22.9068 + (Math.random() - 0.5) * 0.01;
-    }
+    public void moverOnibusPeloShape(Onibus onibus){
+        List<GtfsShape> pontos = shapeRepository.findByShapeIdOrderByShapePtSequenceAsc(onibus.getShapeId());
 
-    private double gerarNovaLongitude() {
-        return -43.1729 + (Math.random() - 0.5) * 0.01;
-    }
+        if (pontos.isEmpty()) return;
 
+        int index = onibus.getPontoAtualIndex();
+
+        if (index >= pontos.size()){
+            index = 0;
+        }
+
+        GtfsShape pontoAtual = pontos.get(index);
+
+        Localizacao loc = new Localizacao();
+
+        loc.setLatitude(pontoAtual.getShapePtLat());
+        loc.setLongitude(pontoAtual.getShapePtLon());
+        loc.setDataHora(LocalDateTime.now());
+
+        onibus.setLocalizacaoAtual(loc);
+        onibus.setPontoAtualIndex(index + 1);
+
+        onibusRepository.save(onibus);
+    }
 
     public void gerarOnibusAutomaticamente() {
         // Pega todas as trips do banco
         List<Trip> trips = tripRepository.findAll();
 
-
+        Set<String> shapeIdsExistentes = onibusRepository.findAll()
+                .stream()
+                .map(Onibus::getShapeId)
+                .collect(Collectors.toSet());
 
         for (Trip trip : trips) {
-            // Verifica se já existe um ônibus com esse trip/shape
-            boolean existe = onibusRepository.existsByShapeId(trip.getShapeId());
-            if (existe) continue; // pula se já tiver
+
+            if (shapeIdsExistentes.contains(trip.getShapeId())){
+                continue;
+            }
 
             // Cria novo ônibus
             Onibus onibus = new Onibus();

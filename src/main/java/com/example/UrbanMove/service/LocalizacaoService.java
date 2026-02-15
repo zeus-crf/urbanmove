@@ -36,61 +36,6 @@ public class LocalizacaoService {
         this.gtfsShapeRepository = gtfsShapeRepository;
     }
 
-    @Scheduled(fixedRate = 1000) // atualiza a cada 1 segundo
-    public void atualizarLoc() {
-        gerarNovaLocalizacao();
-    }
-
-
-    public void gerarNovaLocalizacao() {
-        // Busca todos os ônibus ativos
-        List<Onibus> onibusList = onibusRepository.findAll();
-
-        for (Onibus onibus : onibusList) {
-            String shapeId = onibus.getShapeId();
-
-            if (shapeId == null) {
-                System.out.println("Ônibus sem shapeId: " + onibus.getId());
-                continue;
-            }
-
-            // Busca os pontos do shape no GTFS
-            List<GtfsShape> shapePoints = gtfsShapeRepository.findByShapeIdOrderByShapePtSequenceAsc(shapeId);
-            if (shapePoints.isEmpty()) {
-                System.out.println("Shape vazio para o ônibus: " + onibus.getId());
-                continue;
-            }
-
-            // Atualiza o ponto atual do ônibus
-            int pontoAtual = onibus.getPontoAtualIndex() + 1;
-            if (pontoAtual >= shapePoints.size()) {
-                pontoAtual = 0; // reinicia ou inverte direção
-            }
-            onibus.setPontoAtualIndex(pontoAtual);
-
-            // Pega o ponto atual do shape GTFS
-            GtfsShape ponto = shapePoints.get(pontoAtual);
-
-            // Atualiza a localização existente ou cria se não tiver
-            Localizacao locAtual = onibus.getLocalizacaoAtual();
-            if (locAtual == null) {
-                locAtual = new Localizacao();
-                locAtual.setOnibus(onibus);
-            }
-
-            locAtual.setLatitude(ponto.getShapePtLat());
-            locAtual.setLongitude(ponto.getShapePtLon());
-            locAtual.setDataHora(LocalDateTime.now());
-
-            // Salva a localização e atualiza referência no ônibus
-            localizacaoRepository.save(locAtual);
-            onibus.setLocalizacaoAtual(locAtual);
-            onibusRepository.save(onibus);
-        }
-    }
-
-
-
 
     // Busca a última localização de um ônibus pelo ID
     public Localizacao buscarUltimaLocalizacaoPorOnibusId(UUID onibusId) {
