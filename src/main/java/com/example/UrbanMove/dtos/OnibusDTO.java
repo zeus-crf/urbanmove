@@ -6,7 +6,8 @@ import java.util.UUID;
 
 public record OnibusDTO(
         UUID id,
+        double latitude,
+        double longitude,
         String linha,
-        String placa,
-        Localizacao localizacaoAtual
+        String placa
 ) {}

@@ -1,6 +1,7 @@
 package com.example.UrbanMove.service;
 
 import com.example.UrbanMove.dtos.NovoOnibus;
+import com.example.UrbanMove.dtos.OnibusDTO;
 import com.example.UrbanMove.event.OnibusAtualizadoEvent;
 import com.example.UrbanMove.excecoes.OnibusNaoEncontradoException;
 import com.example.UrbanMove.model.GtfsShape;
@@ -11,18 +12,22 @@ import com.example.UrbanMove.repository.LocalizacaoRepository;
 import com.example.UrbanMove.repository.OnibusRepository;
 import com.example.UrbanMove.repository.ShapeRepository;
 import com.example.UrbanMove.repository.TripRepository;
+
 import com.example.UrbanMove.utils.Utils;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.awt.*;
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,19 +39,25 @@ public class OnibusService {
     private final ApplicationEventPublisher publisher; // Para eventos SSE
     private final TripRepository tripRepository;
     private final ShapeRepository shapeRepository;
+    private final SimulacaoService simulacaoService;
+
+    private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
     public OnibusService(OnibusRepository onibusRepository,
                          LocalizacaoRepository localizacaoRepository,
                          LocalizacaoService localizacaoService,
                          ApplicationEventPublisher publisher,
                          TripRepository tripRepository,
-                         ShapeRepository shapeRepository) {
+                         ShapeRepository shapeRepository,
+                        SimulacaoService simulacaoService) {
         this.onibusRepository = onibusRepository;
         this.localizacaoRepository = localizacaoRepository;
         this.localizacaoService = localizacaoService;
         this.publisher = publisher;
         this.tripRepository = tripRepository;
         this.shapeRepository = shapeRepository;
+
+        this.simulacaoService = simulacaoService;
     }
 
     public List<Onibus> listaDeOnibus() {
@@ -85,15 +96,36 @@ public class OnibusService {
         return ResponseEntity.ok().body("Deletado");
     }
 
+
+
     // Lista todos os ônibus com a localização atual
-    public List<Onibus> listaDeOnibusComLocalizacaoAtual() {
-        List<Onibus> onibusList = onibusRepository.findAll();
-        for (Onibus bus : onibusList) {
-            Localizacao ultima = localizacaoService.buscarUltimaLocalizacaoPorOnibusId(bus.getId());
-            bus.setLocalizacaoAtual(ultima);
-        }
-        return onibusList;
+    public List<OnibusDTO> lista() {
+        return simulacaoService.getOnibusEmMemoria()
+                .stream()
+                .map(bus -> new OnibusDTO(
+                        bus.getId(),
+                        bus.getLocalizacaoAtual().getLatitude(),
+                        bus.getLocalizacaoAtual().getLongitude(),
+                        bus.getLinha(),
+                        bus.getPlaca()
+                ))
+                .toList();
     }
+
+    private void enviarAtualizacao() {
+
+        List<OnibusDTO> dados = lista();
+
+        for (SseEmitter emitter : emitters) {
+            try {
+                emitter.send(dados);
+            } catch (IOException e) {
+                emitters.remove(emitter);
+                System.out.println("Cliente desconectou: " + e.getMessage());
+            }
+        }
+    }
+
 
     // Atualiza a localização de todos os ônibus e dispara evento para SSE
     public void gerarNovaLocalizacao() {
@@ -157,6 +189,16 @@ public class OnibusService {
 
             System.out.println("Ônibus gerado: " + onibus.getPlaca() + " | Shape: " + onibus.getShapeId());
         }
+    }
+
+    public ResponseEntity<List<String>> todasAsLinhas(){
+        List<String> linhas = simulacaoService.getOnibusEmMemoria()
+                .stream()
+                .map(Onibus::getLinha)
+                .distinct()
+                .sorted()
+                .toList();
+        return ResponseEntity.ok(linhas);
     }
 
 }

@@ -1,10 +1,12 @@
 package com.example.UrbanMove.controller;
 
 import com.example.UrbanMove.dtos.NovoOnibus;
+import com.example.UrbanMove.dtos.OnibusDTO;
 import com.example.UrbanMove.event.OnibusAtualizadoEvent;
 import com.example.UrbanMove.model.Onibus;
 import com.example.UrbanMove.service.LocalizacaoService;
 import com.example.UrbanMove.service.OnibusService;
+import com.example.UrbanMove.service.SimulacaoService;
 import com.example.UrbanMove.utils.Utils;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.ResponseEntity;
@@ -18,20 +20,21 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 @RestController
 @RequestMapping("/onibus")
+@CrossOrigin(origins = "*")
 public class OnibusController {
 
     private final LocalizacaoService localizacaoService;
     private final OnibusService onibusService;
+    private final SimulacaoService simulacaoService;
 
-    // Lista thread-safe para armazenar todos os SSE emitters ativos
-    private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
-
-    public OnibusController(LocalizacaoService localizacaoService, OnibusService onibusService) {
+    public OnibusController(LocalizacaoService localizacaoService,
+                            OnibusService onibusService,
+                            SimulacaoService simulacaoService) {
         this.localizacaoService = localizacaoService;
         this.onibusService = onibusService;
+        this.simulacaoService = simulacaoService;
     }
 
-    // --- Endpoints REST normais ---
     @GetMapping("/{id}/localizacao")
     public ResponseEntity<?> localizacaoAtual(@PathVariable UUID id) {
         return ResponseEntity.ok(localizacaoService.buscarLocalizacaoDTO(id));
@@ -43,8 +46,18 @@ public class OnibusController {
     }
 
     @GetMapping
-    public ResponseEntity<List<Onibus>> listaDeOnibus() {
-        return ResponseEntity.ok(onibusService.listaDeOnibusComLocalizacaoAtual());
+    public ResponseEntity<List<OnibusDTO>> listaDeOnibus() {
+        return ResponseEntity.ok(onibusService.lista());
+    }
+
+    @GetMapping("/stream")
+    public SseEmitter stream(@RequestParam(required = false) List<String> linhas){
+        return simulacaoService.conectar(linhas);
+    }
+
+    @GetMapping("/linhas")
+    public ResponseEntity<List<String>> todasAsLinhas(){
+        return onibusService.todasAsLinhas();
     }
 
     @PostMapping
@@ -63,31 +76,4 @@ public class OnibusController {
     public ResponseEntity<?> deletarOnibus(@PathVariable UUID id) {
         return onibusService.deletarOnibus(id);
     }
-
-
-    @GetMapping("/stream")
-    public SseEmitter streamOnibus() {
-        SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
-        emitters.add(emitter);
-
-        // Remove emitter se completar ou expirar
-        emitter.onCompletion(() -> emitters.remove(emitter));
-        emitter.onTimeout(() -> emitters.remove(emitter));
-
-        return emitter;
-    }
-
-    // Evento do Spring para atualizar todos os clientes SSE quando um ônibus mudar
-    @EventListener
-    public void enviarAtualizacao(OnibusAtualizadoEvent event) {
-        Onibus bus = event.getOnibus();
-        emitters.forEach(emitter -> {
-            try {
-                emitter.send(bus);
-            } catch (IOException e) {
-                emitters.remove(emitter);
-            }
-        });
-    }
-
 }
