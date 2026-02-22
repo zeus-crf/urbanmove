@@ -1,23 +1,21 @@
 package com.example.UrbanMove.service;
 
+import com.example.UrbanMove.dtos.BusDTO;
 import com.example.UrbanMove.dtos.NovoOnibus;
 import com.example.UrbanMove.dtos.OnibusDTO;
 import com.example.UrbanMove.event.OnibusAtualizadoEvent;
 import com.example.UrbanMove.excecoes.OnibusNaoEncontradoException;
-import com.example.UrbanMove.model.GtfsShape;
-import com.example.UrbanMove.model.Localizacao;
-import com.example.UrbanMove.model.Onibus;
-import com.example.UrbanMove.model.Trip;
-import com.example.UrbanMove.repository.LocalizacaoRepository;
-import com.example.UrbanMove.repository.OnibusRepository;
-import com.example.UrbanMove.repository.ShapeRepository;
-import com.example.UrbanMove.repository.TripRepository;
+import com.example.UrbanMove.model.*;
+import com.example.UrbanMove.repository.*;
 
 import com.example.UrbanMove.utils.Utils;
+import jakarta.annotation.PostConstruct;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.awt.*;
@@ -40,6 +38,7 @@ public class OnibusService {
     private final TripRepository tripRepository;
     private final ShapeRepository shapeRepository;
     private final SimulacaoService simulacaoService;
+    private final GtfsRoutesRepository gtfsRoutesRepository;
 
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
@@ -49,7 +48,7 @@ public class OnibusService {
                          ApplicationEventPublisher publisher,
                          TripRepository tripRepository,
                          ShapeRepository shapeRepository,
-                        SimulacaoService simulacaoService) {
+                         SimulacaoService simulacaoService, GtfsRoutesRepository gtfsRoutesRepository) {
         this.onibusRepository = onibusRepository;
         this.localizacaoRepository = localizacaoRepository;
         this.localizacaoService = localizacaoService;
@@ -58,7 +57,18 @@ public class OnibusService {
         this.shapeRepository = shapeRepository;
 
         this.simulacaoService = simulacaoService;
+        this.gtfsRoutesRepository = gtfsRoutesRepository;
     }
+
+    public List<GtfsRoutes> searchRoutes(@RequestParam(required = false, defaultValue = "") String search) {
+        return gtfsRoutesRepository.searchRoutes(search);
+    }
+
+    public GtfsRoutes getRouteById(@PathVariable Long id){
+        return gtfsRoutesRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("ID" + id + " nao encontrado"));
+    }
+
 
     public List<Onibus> listaDeOnibus() {
         return onibusRepository.findAll();
@@ -89,13 +99,62 @@ public class OnibusService {
         return ResponseEntity.ok(salvo);
     }
 
+    public List<BusDTO> findBusesBetween(String start, String end) {
+
+        // 1️⃣ Se não passar start e end, retorna todos os ônibus
+        if ((start == null || start.isBlank()) && (end == null || end.isBlank())) {
+            return onibusRepository.findAll().stream()
+                    .map(bus -> new BusDTO(
+                            bus.getId().toString(),
+                            bus.getRoute() != null ? bus.getRoute().getRouteId() : null,
+                            bus.getLocalizacaoAtual().getLatitude(),
+                            bus.getLocalizacaoAtual().getLongitude()
+                    ))
+                    .toList();
+        }
+
+        // 2️⃣ Normaliza inputs
+        String s = start != null ? start.toLowerCase().trim() : "";
+        String e = end != null ? end.toLowerCase().trim() : "";
+
+        System.out.println("======================================");
+        System.out.println("BUSCANDO ENTRE: " + start + " | " + end);
+
+        // 3️⃣ Filtra rotas pelo nome
+        List<GtfsRoutes> rotasEncontradas = gtfsRoutesRepository.findAll().stream()
+                .filter(route -> {
+                    String name = route.getRoute_long_name().toLowerCase();
+                    return name.contains(s) && name.contains(e);
+                })
+                .toList();
+
+        System.out.println("ROTAS ENCONTRADAS: " + rotasEncontradas.size());
+
+        // 4️⃣ Filtra ônibus que estão nessas rotas
+        List<BusDTO> resultado = onibusRepository.findAll().stream()
+                .filter(bus -> bus.getRoute() != null
+                        && rotasEncontradas.stream()
+                        .anyMatch(r -> r.getRouteId().equals(bus.getRoute().getRouteId()))
+                )
+                .map(bus -> new BusDTO(
+                        bus.getId().toString(),
+                        bus.getRoute().getRouteId(),
+                        bus.getLocalizacaoAtual().getLatitude(),
+                        bus.getLocalizacaoAtual().getLongitude()
+                ))
+                .toList();
+
+        System.out.println("TOTAL DE ÔNIBUS ENCONTRADOS: " + resultado.size());
+        System.out.println("======================================");
+
+        return resultado;
+    }
 
     public ResponseEntity<?> deletarOnibus(UUID id) {
         Onibus onibus = buscarOnibus(id);
         onibusRepository.delete(onibus);
         return ResponseEntity.ok().body("Deletado");
     }
-
 
 
     // Lista todos os ônibus com a localização atual
@@ -189,6 +248,55 @@ public class OnibusService {
 
             System.out.println("Ônibus gerado: " + onibus.getPlaca() + " | Shape: " + onibus.getShapeId());
         }
+    }
+
+    @PostConstruct
+    public void atualizarRotasOnibusExistentes() {
+        List<Onibus> onibusList = onibusRepository.findAll();
+
+        for (Onibus onibus : onibusList) {
+            if (onibus.getRoute() == null && onibus.getShapeId() != null) {
+                // Busca a rota pelo shapeId
+                GtfsRoutes rota = gtfsRoutesRepository.findByShapes_ShapeId(onibus.getShapeId());
+                if (rota != null) {
+                    onibus.setRoute(rota);
+                    onibusRepository.save(onibus);
+                    System.out.println("Ônibus " + onibus.getPlaca() + " atualizado com rota: " + rota.getRoute_long_name());
+                } else {
+                    System.out.println("Ônibus " + onibus.getPlaca() + " sem rota para shape: " + onibus.getShapeId());
+                }
+            }
+        }
+    }
+
+    @Transactional
+    public void atualizarRotasOnibus() {
+        List<Onibus> onibusList = onibusRepository.findAll();
+
+        for (Onibus onibus : onibusList) {
+            if (onibus.getRoute() == null && onibus.getShapeId() != null) {
+
+                // Procura a primeira trip que usa o mesmo shape_id
+                Trip trip = tripRepository.findFirstByShapeId(onibus.getShapeId());
+
+                if (trip != null) {
+                    // Busca a rota usando o route_id da trip
+                    GtfsRoutes rota = gtfsRoutesRepository.findByRouteId(trip.getRouteId());
+
+                    if (rota != null) {
+                        onibus.setRoute(rota);
+                        onibusRepository.save(onibus);
+                        System.out.println("Ônibus " + onibus.getPlaca() + " atualizado com rota: " + rota.getRoute_long_name());
+                    } else {
+                        System.out.println("Ônibus " + onibus.getPlaca() + " sem rota para route_id da trip: " + trip.getRouteId());
+                    }
+
+                } else {
+                    System.out.println("Ônibus " + onibus.getPlaca() + " sem trip para shape: " + onibus.getShapeId());
+                }
+            }
+        }
+        System.out.println("Atualização de rotas dos ônibus concluída!");
     }
 
     public ResponseEntity<List<String>> todasAsLinhas(){
