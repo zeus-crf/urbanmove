@@ -1,8 +1,10 @@
 package com.example.UrbanMove.controller;
 
+import com.example.UrbanMove.dtos.BusDTO;
 import com.example.UrbanMove.dtos.NovoOnibus;
 import com.example.UrbanMove.dtos.OnibusDTO;
 import com.example.UrbanMove.event.OnibusAtualizadoEvent;
+import com.example.UrbanMove.model.GtfsRoutes;
 import com.example.UrbanMove.model.Onibus;
 import com.example.UrbanMove.service.LocalizacaoService;
 import com.example.UrbanMove.service.OnibusService;
@@ -20,12 +22,16 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 @RestController
 @RequestMapping("/onibus")
-@CrossOrigin(origins = "*")
+@CrossOrigin(
+        origins = "http://localhost:5173", // frontend
+        allowCredentials = "true"
+)
 public class OnibusController {
 
     private final LocalizacaoService localizacaoService;
     private final OnibusService onibusService;
     private final SimulacaoService simulacaoService;
+
 
     public OnibusController(LocalizacaoService localizacaoService,
                             OnibusService onibusService,
@@ -34,6 +40,23 @@ public class OnibusController {
         this.onibusService = onibusService;
         this.simulacaoService = simulacaoService;
     }
+
+    @GetMapping("/routes")
+    public ResponseEntity<List<BusDTO>> getBuses(
+            @RequestParam(required = false) String start,
+            @RequestParam(required = false) String end) {
+
+        List<BusDTO> buses = onibusService.findBusesBetween(start, end);
+        return ResponseEntity.ok(buses);
+    }
+
+
+
+    @GetMapping("/routes/{id}")
+    public GtfsRoutes getRouteById(@PathVariable Long id){
+        return onibusService.getRouteById(id);
+    }
+
 
     @GetMapping("/{id}/localizacao")
     public ResponseEntity<?> localizacaoAtual(@PathVariable UUID id) {

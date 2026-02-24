@@ -40,4 +40,8 @@ public class Onibus {
 
     // Direção do ônibus (ida ou volta)
     private boolean indo; // true = indo, false = voltando
+
+    @ManyToOne
+    @JoinColumn(name = "route_id") // FK no banco
+    private GtfsRoutes route;
 }

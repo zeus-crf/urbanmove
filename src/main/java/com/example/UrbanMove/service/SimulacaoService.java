@@ -1,5 +1,6 @@
 package com.example.UrbanMove.service;
 
+import com.example.UrbanMove.dtos.OnibusDTO;
 import com.example.UrbanMove.dtos.OnibusSteamDTO;
 import com.example.UrbanMove.model.GtfsShape;
 import com.example.UrbanMove.model.Localizacao;
@@ -37,16 +38,45 @@ public class SimulacaoService {
         this.shapeRepository = shapeRepository;
     }
 
+    public List<OnibusDTO> getOnibusParaCliente(List<String> linhas) {
+        List<OnibusDTO> todosOnibus = getOnibusEmMemoria().stream()
+                .map(bus -> new OnibusDTO(
+                        bus.getId(),
+                        bus.getLocalizacaoAtual().getLatitude(),
+                        bus.getLocalizacaoAtual().getLongitude(),
+                        bus.getLinha(),
+                        bus.getPlaca()
+                ))
+                .toList();
+
+        // Se nenhuma linha foi passada, retorna todos
+        if (linhas == null || linhas.isEmpty()) {
+            return todosOnibus;
+        }
+
+        // Senão, filtra pelos ônibus das linhas passadas
+        return todosOnibus.stream()
+                .filter(bus -> linhas.contains(bus.linha()))
+                .toList();
+    }
+
     // 🔌 Conecta cliente SSE com filtro de linhas
     public SseEmitter conectar(List<String> linhas) {
 
         if (linhas == null) {
-            linhas = Collections.emptyList();
+            linhas = Collections.emptyList(); // não faz problema, mas o getOnibusParaCliente trata vazio
         }
 
         SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
         ClienteSSE cliente = new ClienteSSE(emitter, linhas);
         clientes.add(cliente);
+
+        // Envia dados iniciais para o cliente
+        try {
+            emitter.send(getOnibusParaCliente(linhas));
+        } catch (IOException e) {
+            clientes.remove(cliente);
+        }
 
         emitter.onCompletion(() -> clientes.remove(cliente));
         emitter.onTimeout(() -> clientes.remove(cliente));
