@@ -21,4 +21,12 @@ public interface GtfsRoutesRepository extends JpaRepository<GtfsRoutes, Long> {
 
     @Query("SELECT g FROM GtfsRoutes g WHERE g.routeId = :routeId")
     GtfsRoutes findByRouteId(@Param("routeId") String routeId);
+
+    @Query("""
+        SELECT r.route_long_name
+        FROM GtfsRoutes r
+        WHERE LOWER(r.route_long_name) LIKE LOWER(CONCAT(:query, '%'))
+        ORDER BY r.route_long_name ASC
+        """)
+    List<String> findNames(@Param("query") String query);
 }

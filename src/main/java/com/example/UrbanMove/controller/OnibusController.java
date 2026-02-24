@@ -41,9 +41,6 @@ public class OnibusController {
         this.simulacaoService = simulacaoService;
     }
 
-
-
-
     @GetMapping("/routes")
     public ResponseEntity<List<BusDTO>> getBuses(
             @RequestParam(required = false) String start,
@@ -52,6 +49,8 @@ public class OnibusController {
         List<BusDTO> buses = onibusService.findBusesBetween(start, end);
         return ResponseEntity.ok(buses);
     }
+
+
 
     @GetMapping("/routes/{id}")
     public GtfsRoutes getRouteById(@PathVariable Long id){

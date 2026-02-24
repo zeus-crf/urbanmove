@@ -156,6 +156,20 @@ public class OnibusService {
         return ResponseEntity.ok().body("Deletado");
     }
 
+    public List<String> searchLocations(String query) {
+
+        if (query == null || query.trim().isEmpty()) {
+            return List.of();
+        }
+
+        List<String> result = gtfsRoutesRepository.findNames(query);
+
+        return result.stream()
+                .distinct()
+                .limit(10)
+                .toList();
+    }
+
 
     // Lista todos os ônibus com a localização atual
     public List<OnibusDTO> lista() {
